@@ -75,6 +75,14 @@ export SWEBENCH_GITHUB_TOKEN="ghp_your_token_here"
 ```
    This token is used to clone the SWE-bench fork repository during test evaluation. The token must have access to the `TuringGpt/Microsoft-SWE-Bench` repository.
 
+3. (Optional) Set the architecture if needed:
+```bash
+export SWEBENCH_ARCH="arm64"  # or "x86_64"
+```
+   The architecture is auto-detected from your system (matches swebench harness behavior). 
+   On ARM64 machines (Apple Silicon), it will use `arm64`; on x86_64 machines, it will use `x86_64`.
+   You can override this with the `SWEBENCH_ARCH` environment variable if needed.
+
 3. Prepare your dataset file:
    - Format: `.json` (single object, array of objects, or `.jsonl` (one JSON object per line)
    - Required fields: `instance_id`, `repo`, `base_commit`, `problem_statement`, `gold_patch` (or `patch`), `test_patch`
@@ -253,6 +261,14 @@ If you encounter errors about `SWEBENCH_GITHUB_TOKEN`:
 1. Ensure the environment variable is set: `export SWEBENCH_GITHUB_TOKEN="ghp_..."`
 2. Verify the token has access to the `TuringGpt/Microsoft-SWE-Bench` repository
 3. The token is only used during task generation (embedded in the test script), not during runtime evaluation
+
+### Architecture Detection
+
+The adapter automatically detects your system architecture (arm64 or x86_64) to match the Docker image naming convention used by `prepare_images.py`. The image names will be in the format:
+- `sweb.eval.arm64.{instance_id}:{tag}` on ARM64 machines
+- `sweb.eval.x86_64.{instance_id}:{tag}` on x86_64 machines
+
+You can override the auto-detection by setting `SWEBENCH_ARCH=arm64` or `SWEBENCH_ARCH=x86_64`.
 
 ---
 

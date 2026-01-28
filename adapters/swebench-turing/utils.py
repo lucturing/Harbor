@@ -1,3 +1,5 @@
+import os
+import platform
 import re
 import shlex
 from pathlib import Path
@@ -25,48 +27,83 @@ def render_literal(template_text: str, **repls: str) -> str:
     return out
 
 
+def _detect_architecture() -> str:
+    """
+    Detect the system architecture, matching the logic from swebench harness.
+    
+    Can be overridden via SWEBENCH_ARCH environment variable.
+    Returns 'arm64' or 'x86_64'.
+    """
+    # Allow override via environment variable
+    arch_env = os.getenv("SWEBENCH_ARCH")
+    if arch_env:
+        if arch_env.lower() in ("arm64", "aarch64"):
+            return "arm64"
+        elif arch_env.lower() in ("x86_64", "amd64"):
+            return "x86_64"
+        else:
+            raise ValueError(f"Unsupported architecture: {arch_env}")
+    
+    # Auto-detect from platform (same logic as swebench harness)
+    machine = platform.machine()
+    if machine in {"aarch64", "arm64"}:
+        return "arm64"
+    else:
+        return "x86_64"
+
+
 def get_image_names(
     samples_hf: list[dict],
 ) -> dict[str, str]:
     """
     Return a mapping from sample instance_id → Docker image name
     
-    Handles both standard SWE-bench (uses MAP_REPO_VERSION_TO_SPECS) and
-    custom datasets (uses docker_image or instance_image_tag from spec_dict).
+    Uses make_test_spec to generate image names in the format:
+    sweb.eval.{arch}.{instance_id.lower()}:{tag}
+    
+    This matches the format produced by prepare_images.py.
+    Architecture is auto-detected from the system (can be overridden via SWEBENCH_ARCH env var).
+    If docker_image is provided in the sample, it's used (with tag added if missing).
+    Otherwise, make_test_spec is used to generate the name.
     """
+    # Detect architecture once for all samples
+    arch = _detect_architecture()
+    
     id_to_image: dict[str, str] = {}
     for sample in samples_hf:
         instance_id = sample["instance_id"]
-        repo = sample.get("repo", "")
-        version = sample.get("version", "")
         
-        # First try to get docker_image directly from the sample
-        if "docker_image" in sample:
-            id_to_image[instance_id] = sample["docker_image"]
+        # If docker_image is explicitly provided, use it as-is (no arch modification)
+        if "docker_image" in sample and sample["docker_image"]:
+            docker_image = sample["docker_image"]
+            # Ensure it has a tag (add :latest if missing)
+            if ":" not in docker_image:
+                docker_image = f"{docker_image}:latest"
+            id_to_image[instance_id] = docker_image
             continue
         
-        # Try to use make_test_spec if repo/version is in MAP_REPO_VERSION_TO_SPECS
+        # Use make_test_spec to generate the image name (matches prepare_images.py)
         try:
-            if repo and version and repo in MAP_REPO_VERSION_TO_SPECS:
-                if version in MAP_REPO_VERSION_TO_SPECS[repo]:
-                    spec = make_test_spec(sample, namespace="swebench")
-                    id_to_image[instance_id] = spec.instance_image_key.replace(
-                        "arm64", "x86_64"
-                    )
-                    continue
-        except (KeyError, Exception):
-            pass
-        
-        # Fallback: try to construct from instance_image_tag or use a default
-        if "instance_image_tag" in sample:
-            # You may need to construct the full image name from the tag
-            # This depends on your Docker registry setup
-            tag = sample["instance_image_tag"]
-            # Default pattern - adjust based on your setup
-            id_to_image[instance_id] = f"swebench/{instance_id}:{tag}"
-        else:
-            # Last resort: use instance_id as part of image name
-            id_to_image[instance_id] = f"swebench/{instance_id}:latest"
+            # Get instance_image_tag from sample if available, otherwise use LATEST
+            instance_image_tag = sample.get("instance_image_tag", LATEST)
+            # Get namespace if available (for remote images)
+            namespace = sample.get("namespace")
+            
+            spec = make_test_spec(
+                sample, 
+                namespace=namespace,
+                instance_image_tag=instance_image_tag,
+                arch=arch  # Use detected architecture
+            )
+            # Generate image name: sweb.eval.{arch}.{instance_id.lower()}:{tag}
+            # This matches the format from prepare_images.py
+            image_name = spec.instance_image_key
+            # The instance_id is already lowercased by make_test_spec
+            id_to_image[instance_id] = image_name
+        except (KeyError, Exception) as e:
+            # Fallback: construct basic image name matching the format
+            tag = sample.get("instance_image_tag", LATEST)
+            id_to_image[instance_id] = f"sweb.eval.{arch}.{instance_id.lower()}:{tag}"
     
     return id_to_image
 
