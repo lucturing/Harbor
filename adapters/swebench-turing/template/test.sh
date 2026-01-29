@@ -3,6 +3,15 @@
 {test_commands}
 
 cd ..
+
+# Ensure Python is available for parser (required for all languages)
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "ERROR: python3 is required for test evaluation but not found in the container" >&2
+    mkdir -p /logs/verifier
+    echo 0 > /logs/verifier/reward.txt
+    exit 1
+fi
+
 cat > parser.py <<EOF
 # /// script
 # requires-python = ">=3.11"
@@ -136,10 +145,24 @@ EOF
 
 chmod +x parser.py
 
-# Run parser and CAPTURE its exit code
+# Install dependencies and run parser
 set +e
-uv run parser.py | tee -a "$LOG_FILE"
-exit_code=$?
+
+# Try to use uv if available, otherwise use pip
+if command -v uv >/dev/null 2>&1; then
+    # uv is available, use it
+    uv run parser.py | tee -a "$LOG_FILE"
+    exit_code=$?
+else
+    # uv not available, install dependencies with pip and run with python3
+    python3 -m pip install --quiet --user \
+        "swebench @ git+https://{github_token}@github.com/TuringGpt/Microsoft-SWE-Bench.git" \
+        "datasets==2.16.1" \
+        "fastcore<1.11" >/dev/null 2>&1 || true
+    python3 parser.py | tee -a "$LOG_FILE"
+    exit_code=$?
+fi
+
 set -e
 
 # ----------------------- Reward logging for Harbor ------------------------

@@ -37,6 +37,14 @@ WORKDIR /testbed
 
 # bash scripts_bash/launch-interactive-container.sh -t <YOUR_TASK_ID>
 
-# RUN apt-get update && apt-get install -y git tmux asciinema 
-RUN curl -LsSf https://astral.sh/uv/0.7.13/install.sh | sh 
+# Install Python and uv for parser execution (needed for all languages)
+# Python is required to run the test result parser, even for non-Python projects
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    curl \
+    && rm -rf /var/lib/apt/lists/* || true
+
+# Install uv for running parser.py (with fallback if installation fails)
+RUN curl -LsSf https://astral.sh/uv/0.7.13/install.sh | sh || true
 RUN mkdir -p /logs
